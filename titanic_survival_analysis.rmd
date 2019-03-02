@@ -1,0 +1,209 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+Exercice 3 page 298
+
+L'expression de Y est :
+$Y=X^{2}-X+1$ si X est supérieur ou égale à 1
+$Y=1+X$ si non
+
+on trace cette fonction 
+
+```{r}
+X=seq(from=-2, to=2, length.out = 400);
+Y=1:400;
+
+for (i in 1:299){
+  Y[i]=1+X[i]
+}
+for(i in 300:400){
+  Y[i]=(-2*X[i]^2+5*X[i]-1)
+}
+
+plot(X,Y)
+```
+La fonction onbtenue s'annule en X=-1.
+Son minimum est atteint en X=-2 et son maximum en $X=\frac{5}{4}$.
+De plus, $lim_{1_{-}}(Y)=2$ et $lim_{1_{+}}(Y)=2$. La fonction est donc continue sur l'intervalle de définition.
+
+Exerci 6 page 298
+
+Testons différents degrées de polynome pour la regression. Réalisons en suite une validation croisée pour estimer l'erreur de chaque modèle
+
+```{r}
+set.seed(1919788)
+library(ISLR)
+library(boot)
+
+cv<-matrix(NA,10)
+
+for (i in 1:10){
+  fit<-glm(wage~poly(age,i),data=Wage)
+  cv[i]<-cv.glm(Wage, fit , K=10)$delta[2]
+}
+plot(cv,xlab="Degrée du polynome", ylab="erreur cv",main="Validation croisée 10-folds")
+lines(1:10, cv)
+cv
+
+```
+
+A partir d'une polynome de degrée 4, l'erreur se stabilise autour de 1595. On prendra pour la suite d=4, qui représente le polynome de degrée (et donc de complexité) minimale avec un taux d'erreur parmis les plus faible.
+
+Comparons ce résultat à celui obtenue en utilisant ANOVA
+
+```{r}
+fit.1 = lm(wage~poly(age, 1), data=Wage)
+fit.2 = lm(wage~poly(age, 2), data=Wage)
+fit.3 = lm(wage~poly(age, 3), data=Wage)
+fit.4 = lm(wage~poly(age, 4), data=Wage)
+fit.5 = lm(wage~poly(age, 5), data=Wage)
+fit.6 = lm(wage~poly(age, 6), data=Wage)
+fit.7 = lm(wage~poly(age, 7), data=Wage)
+fit.8 = lm(wage~poly(age, 8), data=Wage)
+fit.9 = lm(wage~poly(age, 9), data=Wage)
+fit.10 = lm(wage~poly(age, 10), data=Wage)
+anova(fit.1, fit.2, fit.3, fit.4, fit.5, fit.6, fit.7, fit.8, fit.9, fit.10)
+```
+Le modèle choisi précedement est le modèle 4. On constate qu'il a une p-value parmis les plus basse. C'est donc un bon choix. Seul le polynome de degré 3 à une p-value inférieur. Cependant il est moins bon sur les autres indiquateurs comme la somme des carrées.
+
+Affichons ces résultats sous forme d'un graphique :
+
+```{r}
+#création des axes 
+
+agelims = range(Wage$age)
+age.grid = seq(from=agelims[1], to=agelims[2])
+
+#graphique
+plot(wage~age, data=Wage, col="grey")
+lm.fit = lm(wage~poly(age, 3), data=Wage)
+lm.pred = predict(lm.fit, data.frame(age=age.grid))
+lines(age.grid, lm.pred, col="red")
+```
+
+b) Trouvons maintenant une fonction palliers pour réaliser des prédictions
+
+```{r}
+all.cvs = rep(NA, 10)
+for (i in 2:10) {
+  Wage$age.cut = cut(Wage$age, i)
+  lm.fit = glm(wage~age.cut, data=Wage)
+  all.cvs[i] = cv.glm(Wage, lm.fit, K=10)$delta[2]
+}
+plot(2:10, all.cvs[-1], xlab="Number of cuts", ylab="CV error", type="l", pch=20, lwd=2)
+```
+L'erreur la plus faible à atteinte pour 8 cuts
+On peut visualiser le résultat d'une telle regression sur le graphique suivant :
+
+```{r}
+lm.fit = glm(wage~cut(age, 8), data=Wage)
+agelims = range(Wage$age)
+age.grid = seq(from=agelims[1], to=agelims[2])
+lm.pred = predict(lm.fit, data.frame(age=age.grid))
+plot(wage~age, data=Wage, col="darkgrey")
+lines(age.grid, lm.pred, col="red", lwd=2)
+```
+On remarque bien sur la courbe rouge que la fonction choisi est une fonction par palliers.
+
+Exercice 6 page 333
+
+Commençons par importer les données et séparer le jeu de données en un jeu d'entrainement et un jeu test.
+
+```{r}
+library(ISLR)
+library(tree)
+library(randomForest)
+set.seed(1919788)
+
+Dataset<-Carseats
+#3/4 des données pour l'entrainement
+train<-sample(400,300,rep=TRUE);
+training_set<-Dataset[train,];
+test_set<-Dataset[-train,]
+
+```
+
+b) On réalise un arbre de regression grâce aux données test :
+
+```{r}
+reg.tree <- tree(Sales ~ ., data = training_set)
+summary(reg.tree)
+plot(reg.tree)
+text(reg.tree, pretty = 0)
+```
+
+L'interprétation de cette arbre est la suivante : Chaque branche correspond à un intervalle pour un paramètre. Pour une observation donnée, en partant du haut de l'arbre on choisit à chaque fois la branche correspondant à la valeur du paramètre de notre observation. Tout en bas de l'arbre on trouve la valeur du paramètre que l'on souhaite estimé. Elle est calculé à partir de la moyenne des valeur du jeu de données d'entrainement.
+
+On se sert de cette regression pour déterminer le MSE sur les données test :
+
+```{r}
+pred <- predict(reg.tree, test_set)
+MSE<-mean((test_set$Sales - pred)^2)
+MSE
+
+```
+On obtient un MSE de 4.88
+
+c) Réalisons une validation croisée sur des arbres de différentes complexités pour déterminer le meilleur modèle. pour cela on utilise la fonction cv.tree. Elle va construire un arbre exessivement grand et sélectionner une séquence de sous arbres qui ont une complexité raisonnable. Une validation croisée permet ensuite de ne garder que le meilleur des sous arbres.
+
+```{r}
+
+cv <- cv.tree(reg.tree, FUN = prune.tree)
+
+#affichage résultats
+cv
+plot(cv$size, cv$dev, type = "b")
+plot(cv$k, cv$dev, type = "b")
+
+```
+
+Afin de savoir si le "pruning" effectué précedement améliore le modèle, déterminons le MSE sur le jeu de données test, pour la valeur optimale de complexité qui est de 9 d'après les graphes précédents.
+
+
+```{r}
+pfit <- prune.tree(reg.tree, best = 9)
+
+pred <- predict(pfit, test_set)
+MSE_pruned<-mean((test_set$Sales - pred)^2)
+MSE_pruned
+```
+
+Le MSE n'est pas meilleur, il a même légèrement augmenté.
+
+d) Déterminons le MSE sur les données test à partir d'une approche "bagging". Pour cela on utilisé la fonction randomForest en utilisant tous les paramètres dans le découpage (mtry=10)
+
+```{r}
+
+
+bag.fit<-randomForest(Sales~.,data=training_set, mtry=10, ntree=500, importance = T)
+bag.pred<-predict(bag.fit,test_set)
+MES_bag<-mean((test_set$Sales - bag.pred)^2)
+
+MES_bag
+
+importance(bag.fit)
+```
+
+On obtient un MSE de 3.16. C'est le meilleur résultat obtenu jusqu'à présent.
+
+On constate de plus que les variables US, Urban, Education et Income sont moins importantes que les autres. Les variables les plus importantes sont "Price"" et "shelveloc""
+
+e)Utilisons maintenant la technique "random Forest"
+```{r}
+MSE_forest<-1:10;
+
+for(i in 1:10){
+forest.fit<-randomForest(Sales~.,data=training_set, mtry=i, ntree=500, importance=T)
+forest.pred<-predict(forest.fit,test_set)
+MSE_forest[i]<-mean((test_set$Sales-forest.pred)^2)}
+MSE_forest
+
+importance(forest.fit)
+```
+
+Le MSE varie en fonction de la valeur de m choisi. pour m>1 il est plus faible que le MSE des deux premières méthodes. Le meilleur MSE est atteint pour m=6, il est de 3.04. Cette valeur est plus faible que celle trouvée précedemment.
+L'odre d'importance des variables n'a pas significativement changé.
