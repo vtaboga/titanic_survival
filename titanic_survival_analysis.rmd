@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Commençons par importer les données :
+
+```{r}
+library(boot)
+library(class)
+library(MASS)
+library(tree)
+library(pls)
+library(glmnet)
+library(leaps)
+
+set.seed(1919788)
+
+dataset<-read.csv("train.csv",sep=',',header=TRUE);
+```
+On remarque que le paramètre "cabin" est non renseigné dans la majorité des cas.
+On la retire donc du jeu de données. De plus on retire les observations ou certains paramètres sont manquants.
+
+De plus, le paramètre nom d'apporte pas d'information sur la survie du passagé. Il est différent pour chaque personne et ne permet donc pas de repérer des classes.
+
+Enfin, le paramètre ticket n'est ni une variable quantitative ni une classe. Nous allons l'omettre pour faciliter l'étude.
+```{r}
+dataset<-dataset[-11];
+dataset<-dataset[-4];
+dataset<-dataset[-8];
+dataset<-dataset[-1];
+
+dataset<-na.omit(dataset);
+```
+
+Transformons maintenant le paramètre "sex" en "dummy variable"
+```{r}
+n<-length(dataset[,1]);
+
+#1 pour les hommes 0 pour les femmes
+dataset[3]<-ifelse(dataset[3]=='male',1,0);
+
+```
+
+On divise maintenant notre jeux de données en une partie pour entrainer le model et un autre pour le tester.
+
+```{r}
+index<-sample(n,n/4,rep=TRUE);
+training_set<-dataset[index,];
+test_set<-dataset[-index,];
+```
+
+Nos données sont maintenant prêtes à être exploitées. Dans un premier temps nous allons analyser l'importance relative des paramètres. Nous allons ensuite tester trois méthodes de classification et les comparer pour retenir la meilleure.
+
+1)Selection des paramètres importants
+
+```{r}
+regfit.full<-regsubsets(Survived~.,training_set)
+reg.summary<-summary(regfit.full)
+reg.summary
+
+plot(reg.summary$adjr2,xlab="nombre de variable",ylab="R² ajusté")
+```
+On remarque ici que le paramètre à trois états Embarked est transformé par R en trois "dummy variables", une pour chaque état. Cela à pour inconvéniant de créer des varaibles colinéaires qui rend impossible l'utilisation de certaines méthodes.
+
+```{r}
+predict.regsubsets<-function(object,newdata,id){
+  form<-as.formula(object$call[[2]])
+  mat<-model.matrix(form,newdata)
+  coefi<-coef(object,id=id)
+  xvars<-names(coefi)
+  mat[,xvars]%*%coefi
+}
+```
+
+```{r}
+regfit.best<-regsubsets(Survived~.,data=training_set)
+test.mat<-model.matrix(Survived~.,data=training_set)
+
+k=10; #10-folds validation
+folds<-sample(1:k,nrow(training_set),replace=TRUE)
+#matrice des résultats
+cv.r2<-matrix(NA,k,8,dimnames=list(NULL,paste(1:8)));
+
+for(j in 1:k){
+  #On entraine un modèle avec les données de k-1 groupes
+  best.fit<-regsubsets(Survived~.,data=training_set[folds==j,])
+  for(i in 1:7){
+    #on réalise les prédictions sur le k-ieme groupe, pour différent nombre de paramètres
+    pred<-predict(best.fit,newdata=training_set[folds==j,],id=i)
+  #calcul du r ajusté
+    cv.r2[j,i]=(nrow(training_set[folds==j,])-1)/(nrow(training_set[folds==j,])-1-i)*sum((training_set$Survived[folds==j]-pred)^2)/sum((training_set$Survived[folds==j]-mean(training_set$Survived[folds==j]))^2)}
+}
+
+#On moyenne les r² ajustées
+mean.cv.r2<-apply(cv.r2,2,mean)
+mean.cv.r2
+
+plot(mean.cv.r2,type='b')
+  
+```
+On constate que le meilleur modèle est un modèle à 5 paramètres : Pclass, Sex, Age, SibSp et Embarked. On retiendra ces 5 paramètres pour nos modèles.
+
+1)Regression logistique.
+
+```{r}
+glm.fit<-glm(Survived~Pclass+Sex+Age+SibSp+Embarked,data=training_set,family=binomial);
+summary(glm.fit)
+
+glm.pred<-ifelse(predict(glm.fit, test_set,type="response")>0.5,1,0)
+
+erreur_glm<-ifelse(test_set$Survived != glm.pred,1,0)
+tau_glm<-mean(erreur_glm)
+tau_glm
+```
+Le taux d'erreur sur le jeu de données test est de 0.19.
+
+
+2) Méthode QDA
+
+```{r}
+qda.fit<-qda(Survived~Pclass+Sex+Age+SibSp+Parch+Fare,data=training_set);
+qda.pred<-predict(qda.fit,test_set)$class;
+summary(qda.fit)
+
+erreur_qda<-ifelse(test_set$Survived != qda.pred,1,0)
+tau_qda<-mean(erreur_qda)
+tau_qda
+```
+
+
+
+3)Arbre de regression
+
+```{r}
+tree.fit<-tree(Survived~.,data=training_set,method="class")
+summary(tree.fit)
+
+plot(tree.fit)
+text(tree.fit,pretty=0)
+
+tree.pred<-predict(tree.fit,test_set)
+
+erreur_tree<-ifelse(test_set$Survived != tree.pred,1,0)
+tau_tree<-mean(erreur_tree)
+tau_tree
+```
+
